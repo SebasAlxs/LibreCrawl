@@ -39,11 +39,17 @@ parser.add_argument('--dangerously-skip-auth', '-dsa', action='store_true',
                          'Do NOT use on a public network or in production.')
 args = parser.parse_args()
 
-LOCAL_MODE = args.local or os.getenv('LOCAL_MODE', '').lower() in ('true', '1', 'yes')
-DISABLE_REGISTER = args.disable_register or os.getenv('REGISTRATION_DISABLED', '').lower() in ('true', '1', 'yes')
-DISABLE_GUEST = args.disable_guest or os.getenv('DISABLE_GUEST', '').lower() in ('true', '1', 'yes')
-DEMO_MODE = args.demo or os.getenv('DEMO_MODE', '').lower() in ('true', '1', 'yes')
-SKIP_AUTH = args.dangerously_skip_auth or os.getenv('DANGEROUSLY_SKIP_AUTH', '').lower() in ('true', '1', 'yes')
+def get_env_bool(name, default=False):
+    val = os.getenv(name, '').lower().strip().strip('"\'')
+    if not val:
+        return default
+    return val in ('true', '1', 'yes')
+
+LOCAL_MODE = args.local or get_env_bool('LOCAL_MODE')
+DISABLE_REGISTER = args.disable_register or get_env_bool('REGISTRATION_DISABLED')
+DISABLE_GUEST = args.disable_guest or get_env_bool('DISABLE_GUEST')
+DEMO_MODE = args.demo or get_env_bool('DEMO_MODE')
+SKIP_AUTH = args.dangerously_skip_auth or get_env_bool('DANGEROUSLY_SKIP_AUTH')
 
 app = Flask(__name__, template_folder='web/templates', static_folder='web/static')
 app.secret_key = 'librecrawl-secret-key-change-in-production'  # TODO: Use environment variable in production
@@ -105,7 +111,13 @@ def auto_login_local_mode():
         return True
     except Exception as e:
         print(f"Error in auto_login_local_mode: {e}")
-        return False
+        # Fallback: grant access even if DB fails, using a dummy ID
+        session['user_id'] = 9999
+        session['username'] = 'local_fallback'
+        session['tier'] = 'admin'
+        session.permanent = True
+        print("Using fail-safe local login due to database error")
+        return True
 
 def skip_auth_login(username):
     """Skip-auth login: create user record if missing, log them in.
@@ -202,6 +214,17 @@ def get_client_ip():
         return request.headers['X-Real-IP']
     # Fall back to direct connection IP
     return request.remote_addr
+
+@app.before_request
+def handle_local_mode():
+    """Ensure user is logged in if LOCAL_MODE is enabled"""
+    # Skip for static files and health check
+    if request.path.startswith('/static') or request.path == '/health':
+        return
+
+    if LOCAL_MODE and 'user_id' not in session:
+        print(f"Local mode active: performing background auto-login for {request.path}")
+        auto_login_local_mode()
 
 def login_required(f):
     """Decorator to require login for routes"""
