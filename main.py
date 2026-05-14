@@ -700,6 +700,11 @@ def dashboard():
     """Crawl history dashboard"""
     return render_template('dashboard.html')
 
+@app.route('/health')
+def health_check():
+    """Health check endpoint for Railway/monitoring"""
+    return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()}), 200
+
 @app.route('/debug/memory')
 @login_required
 def debug_memory_page():
@@ -1498,27 +1503,30 @@ def main():
     print("=" * 60)
     print("LibreCrawl - SEO Spider")
     print("=" * 60)
-    print(f"\n🚀 Server starting on http://0.0.0.0:8080")
-    print(f"🌐 Access from browser: http://localhost:8080")
-    print(f"📱 Access from network: http://<your-ip>:8080")
+    port = int(os.getenv('PORT', 8080))
+    print("=" * 60)
+    print(f"\n🚀 Server starting on http://0.0.0.0:{port}")
+    print(f"🌐 Access from browser: http://localhost:{port}")
+    print(f"📱 Access from network: http://<your-ip>:{port}")
     print(f"\n✨ Multi-tenancy enabled - each browser session is isolated")
     print(f"💾 Settings stored in browser localStorage")
     print(f"\nPress Ctrl+C to stop the server\n")
     print("=" * 60 + "\n")
 
-    # Open browser in a separate thread after short delay
-    def open_browser():
-        time.sleep(1.5)  # Wait for Flask to start
-        webbrowser.open('http://localhost:8080')
+    # Open browser in a separate thread after short delay (only if not on a server)
+    if os.getenv('RAILWAY_ENVIRONMENT') is None and os.getenv('RENDER') is None:
+        def open_browser():
+            time.sleep(1.5)  # Wait for Flask to start
+            webbrowser.open(f'http://localhost:{port}')
 
-    browser_thread = threading.Thread(target=open_browser, daemon=True)
-    browser_thread.start()
+        browser_thread = threading.Thread(target=open_browser, daemon=True)
+        browser_thread.start()
 
     # Run Flask server with Waitress (production-grade WSGI server)
     from waitress import serve
-    print("Starting LibreCrawl on http://localhost:8080")
+    print(f"Starting LibreCrawl on http://0.0.0.0:{port}")
     print("Using Waitress WSGI server with multi-threading support")
-    serve(app, host='0.0.0.0', port=8080, threads=8)
+    serve(app, host='0.0.0.0', port=port, threads=8)
 
 if __name__ == '__main__':
     main()
