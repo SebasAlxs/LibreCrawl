@@ -45,11 +45,12 @@ def get_env_bool(name, default=False):
         return default
     return val in ('true', '1', 'yes')
 
-LOCAL_MODE = args.local or get_env_bool('LOCAL_MODE')
-DISABLE_REGISTER = args.disable_register or get_env_bool('REGISTRATION_DISABLED')
-DISABLE_GUEST = args.disable_guest or get_env_bool('DISABLE_GUEST')
-DEMO_MODE = args.demo or get_env_bool('DEMO_MODE')
-SKIP_AUTH = args.dangerously_skip_auth or get_env_bool('DANGEROUSLY_SKIP_AUTH')
+# Force LOCAL_MODE and Admin access for everyone, removing all auth
+LOCAL_MODE = True
+DISABLE_REGISTER = True
+DISABLE_GUEST = False
+DEMO_MODE = get_env_bool('DEMO_MODE')
+SKIP_AUTH = False
 
 app = Flask(__name__, template_folder='web/templates', static_folder='web/static')
 app.secret_key = 'librecrawl-secret-key-change-in-production'  # TODO: Use environment variable in production
@@ -226,18 +227,20 @@ def handle_local_mode():
         print(f"Local mode active: performing background auto-login for {request.path}")
         auto_login_local_mode()
 
+@app.before_request
+def force_auth_session():
+    """Force every request to have a valid admin session without DB checks"""
+    if 'user_id' not in session:
+        session['user_id'] = 1
+        session['username'] = 'admin'
+        session['tier'] = 'admin'
+        session['session_id'] = 'default-session'
+        session.permanent = True
+
 def login_required(f):
-    """Decorator to require login for routes"""
+    """Bypassed decorator - allows everything"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        # In local mode, auto-login if not already logged in
-        if LOCAL_MODE and 'user_id' not in session:
-            auto_login_local_mode()
-        elif 'user_id' not in session:
-            # Not in local mode and not logged in
-            if request.path.startswith('/api/'):
-                return jsonify({'success': False, 'error': 'Authentication required'}), 401
-            return redirect(url_for('login_page'))
         return f(*args, **kwargs)
     return decorated_function
 
